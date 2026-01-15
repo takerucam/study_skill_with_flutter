@@ -88,3 +88,36 @@ Check `git status` after each commit. Stop on error.
 - Always get user approval before executing
 - Execute sequentially (not parallel)
 - Consult `references/commit-patterns.md` when uncertain
+
+## Commit Independence (コミット独立性)
+
+各コミットは削除してもビルドが通る状態を保つ。
+
+### 依存関係に基づく順序
+
+コミット順序は依存関係の下流から上流へ:
+
+1. モデル（データ構造の定義）
+2. プロバイダー（状態管理・ビジネスロジック）
+3. ウィジェット（UI コンポーネント）
+4. 画面（ページ全体）
+
+### 機能単位での分割
+
+1ファイル内でも複数機能は別コミットに分割:
+- 作成機能 → 保存機能 → 編集機能 → 削除機能
+
+例: `memo_provider.dart` に複数機能がある場合
+```
+コミット1: ✨ メモ作成機能を追加
+コミット2: ✨ メモ保存機能を追加
+コミット3: ✨ メモ編集機能を追加
+コミット4: ✨ メモ削除機能を追加
+```
+
+### 独立性チェック
+
+各コミット提案時に確認:
+- 各コミットが単独で動作可能か
+- 未使用のimportや参照がないか
+- ビルドエラーが発生しないか
