@@ -224,6 +224,146 @@ lib/providers/todo_provider.dart (新規)
 - 見た目の変更が主目的
 - ロジックの変更は最小限
 
+## Commit Order and Independence
+
+### 依存関係ルール
+
+コミット順序は依存関係の下流から上流へ。各コミットを削除してもビルドが通る状態を保つ。
+
+```
+[コミット1] モデル定義
+     ↓ (依存)
+[コミット2] プロバイダー（モデルを使用）
+     ↓ (依存)
+[コミット3] ウィジェット（プロバイダーを使用）
+     ↓ (依存)
+[コミット4] 画面（ウィジェットを使用）
+```
+
+**理由**: 後のコミットを削除しても、前のコミットは独立して動作可能。
+
+### 1ファイル内の機能分割
+
+1つのファイルに複数機能がある場合、機能ごとに別コミットに分割する。
+
+#### 例1: memo_provider.dart に複数機能
+
+```dart
+// コミット1: ✨ メモ作成機能を追加
+Memo createMemo(String title) {
+  return Memo(id: uuid(), title: title, createdAt: DateTime.now());
+}
+
+// コミット2: ✨ メモ保存機能を追加
+void saveMemo(Memo memo) {
+  _memos.add(memo);
+}
+
+// コミット3: ✨ メモ編集機能を追加
+void updateMemo(Memo memo) {
+  final index = _memos.indexWhere((m) => m.id == memo.id);
+  if (index != -1) _memos[index] = memo;
+}
+
+// コミット4: ✨ メモ削除機能を追加
+void deleteMemo(String id) {
+  _memos.removeWhere((m) => m.id == id);
+}
+```
+
+各機能は独立しており、どのコミットを削除してもビルド可能。
+
+#### 例2: todo_page.dart にボタンと機能
+
+```dart
+// コミット1: ✨ TODOページの基本構造を作成
+class TodoPage extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Scaffold(appBar: AppBar(title: Text('TODO')));
+  }
+}
+
+// コミット2: ✨ TODO作成ボタンを追加
+FloatingActionButton(
+  onPressed: () => _showCreateDialog(context),
+  child: Icon(Icons.add),
+)
+
+// コミット3: ✨ TODO作成ダイアログを追加
+void _showCreateDialog(BuildContext context) {
+  showDialog(context: context, builder: (ctx) => TodoCreateDialog());
+}
+
+// コミット4: ✨ TODO保存機能を追加
+void _saveTodo(Todo todo) {
+  ref.read(todoPodProvider.notifier).add(todo);
+}
+```
+
+### 独立性チェックリスト
+
+各コミット提案時に以下を確認:
+
+- [ ] このコミットを削除してもビルドが通るか？
+- [ ] 未使用のimportが含まれていないか？
+- [ ] 他のコミットに依存していないか？（依存する場合は順序を調整）
+- [ ] 1つの明確な機能を表しているか？
+- [ ] コミットメッセージが機能を正確に表現しているか？
+
+### 機能分割の判断基準
+
+**分割すべき例**:
+- CRUD操作（Create, Read, Update, Delete）
+- 異なるユーザーアクション（ボタンタップ、入力、スワイプ）
+- 異なるビジネスロジック（バリデーション、計算、変換）
+
+**分割不要な例**:
+- 1つの機能の内部実装（ヘルパーメソッド）
+- 密結合な処理（片方がないと動作しない）
+
+### コミット順序の例
+
+#### 新機能追加の場合
+
+```
+コミット1: ✨ Memo モデルの freezed を作成
+  - lib/models/memo.dart
+  - lib/models/memo.freezed.dart
+  - lib/models/memo.g.dart
+
+コミット2: ✨ MemoPod プロバイダーを作成（基本構造）
+  - lib/providers/memo_provider.dart
+  - lib/providers/memo_provider.g.dart
+
+コミット3: ✨ メモ作成機能を追加
+  - lib/providers/memo_provider.dart (createMemo メソッド)
+  - lib/providers/memo_provider.g.dart
+
+コミット4: ✨ メモ保存機能を追加
+  - lib/providers/memo_provider.dart (saveMemo メソッド)
+  - lib/providers/memo_provider.g.dart
+
+コミット5: ✨ メモ編集機能を追加
+  - lib/providers/memo_provider.dart (updateMemo メソッド)
+  - lib/providers/memo_provider.g.dart
+
+コミット6: ✨ メモ削除機能を追加
+  - lib/providers/memo_provider.dart (deleteMemo メソッド)
+  - lib/providers/memo_provider.g.dart
+
+コミット7: ✨ MemoInput ウィジェットを作成
+  - lib/widgets/memo_input.dart
+
+コミット8: ✨ MemoListItem ウィジェットを作成
+  - lib/widgets/memo_list_item.dart
+
+コミット9: ✨ メモページを作成
+  - lib/pages/memo_page.dart
+```
+
+**独立性の確認**: コミット6を削除しても、コミット1〜5は動作する（削除機能がないだけ）。
+
 ## Decision Tree
 
 変更ファイルを見たときの判断フロー:
@@ -234,8 +374,10 @@ lib/providers/todo_provider.dart (新規)
    │   └─ Yes → .dart + .freezed.dart + .g.dart をグループ化
    ├─ providers/ → Riverpod provider?
    │   └─ Yes → _provider.dart + _provider.g.dart をグループ化
+   │   └─ 複数機能がある？ → 機能ごとに分割
    ├─ widgets/ → Widget単体としてグループ化
    ├─ screens/ → Screen単体としてグループ化
+   │   └─ 複数機能がある？ → 機能ごとに分割
    ├─ docs/ → 内容ごとにグループ化
    ├─ test/ → テストファイル単体としてグループ化
    └─ pubspec.yaml, analysis_options.yaml → 単独コミット
@@ -251,6 +393,12 @@ lib/providers/todo_provider.dart (新規)
 
 3. グループ内に複数機能が混在していないか確認
    └─ 混在している → さらに分割
+
+4. コミット順序を依存関係に基づいて決定
+   └─ モデル → プロバイダー → ウィジェット → 画面
+
+5. 独立性チェック
+   └─ 各コミットを削除してもビルドが通るか確認
 ```
 
 ## Examples
